@@ -7,6 +7,10 @@ dotenv.config()
 const client = new DiscordJS.Client()
 
 client.on('message', message => {
+	if (message.author.bot) {
+		return
+	}
+
 	commands.forEach(([regex, executor]) => {
 		// Test if the command matches regex
 		if (!regex.test(message.content)) {
@@ -18,8 +22,8 @@ client.on('message', message => {
 
 		// Spread regex capture groups as commands
 		executor(...regex.exec(message.content)!.splice(1))
+			.then(response => (message.channel.stopTyping(), response)) // Stop typing
 			.then(response => message.reply(...[].concat(response))) // Apply response data as message.reply args
-			.then(() => message.channel.stopTyping()) // Stop typing
 			.catch((e: Error) => { // Error handling
 				message.reply(`Error: ${e.message}`)
 					.catch(console.error)
@@ -30,5 +34,8 @@ client.on('message', message => {
 })
 
 client.login(process.env.DISCORD_TOKEN)
-	.then(() => console.log('Logged in'))
+	.then(() => {
+		console.log('Logged in')
+		return client.user.setActivity('.bb help')
+	})
 	.catch(console.error)

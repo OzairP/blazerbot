@@ -74,13 +74,7 @@ export async function summarizeTeam (teamPage: string) {
 		ranked_players: rankedPlayers.length,
 		average_skill_rating,
 		average_skill_rating_name: skillRatingToName(average_skill_rating),
-		player_summaries:
-			players.map(player => ({
-				battle_tag: player.username,
-				skill_rating: player.competitive.rank || 'Unranked',
-				skill_rating_name: player.competitive.rank ? skillRatingToName(player.competitive.rank) : 'Unranked',
-				heroes: player.private ? 'Unknown' : player.stats.top_heroes.competitive.played.slice(0, 3)
-			}))
+		player_summaries: players.sort(SRComparator)
 	}
 }
 
@@ -117,17 +111,48 @@ export function teamSummaryToMessage (summary: UnwrapPromise<ReturnType<typeof s
 **Team Members**: ${summary.total_players} (${summary.ranked_players} are ranked)
 **Player Summaries** (current competitive season):\n`
 
-	message += summary.player_summaries.reduce((msg, player) => {
-		const heroes = (() => {
-			if (!Array.isArray(player.heroes)) {
-				return `\t\t${player.heroes}\n`
-			}
-
-			return player.heroes.reduce((content, hero) => content + `\t\t${hero.hero} (${hero.played})\n`, '')
-		})()
-
-		return msg + `\t${player.battle_tag} — ${player.skill_rating_name} (${player.skill_rating})\n${heroes}\n`
-	}, '')
+	message += summary.player_summaries
+		.reduce((msg, player) => msg + playerSummaryToMessage(player, 3), '')
 
 	return message
+}
+
+/**
+ * Convert a player summary to messsage
+ *
+ * @param {UnwrapPromise<ReturnType<typeof summarizePlayer>>} summary
+ * @param {number} heroLimit
+ * @return {string}
+ */
+export function playerSummaryToMessage (summary: UnwrapPromise<ReturnType<typeof summarizePlayer>>, heroLimit: number = 5) {
+	const skillRatingName = summary.competitive.rank ? skillRatingToName(summary.competitive.rank) : 'Unranked'
+	const heroes = (() => {
+		const heroes = summary.stats.top_heroes.competitive.played.splice(0, heroLimit)
+		if (heroes.length === 0) {
+			return `\tUnknown\n`
+		}
+
+		return heroes.reduce((content, hero) => content + `\t${hero.hero} (${hero.played})\n`, '')
+	})()
+
+	return `\n${summary.username} — ${skillRatingName} (${summary.competitive.rank || 'Unranked'})\n${heroes}`
+}
+
+/**
+ * Compares SR, honoring the highest rated player
+ *
+ * @param {OverwatchAPI.Profile} a
+ * @param {OverwatchAPI.Profile} b
+ * @return {number}
+ */
+export function SRComparator (a: Profile, b: Profile) {
+	if (a.competitive.rank && !b.competitive.rank) {
+		return a.competitive.rank
+	}
+
+	if (b.competitive.rank && !a.competitive.rank) {
+		return b.competitive.rank
+	}
+
+	return b.competitive.rank - a.competitive.rank
 }
