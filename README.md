@@ -5,7 +5,7 @@ Overwatch team.
 
 ## Commands
 
-### `.bb summarize \<TESPA TEAM URL\>`
+### `.bb summarize <TESPA TEAM URL>`
 BlazerBot will summarize a team's statistics using the
 Overwatch API. Returning information like team average
 SR, and individual player summaries including their SR
