@@ -27,9 +27,14 @@ export async function summarizePlayer (battletag: string): Promise<Stats & Profi
 	battletag = battletag.replace('#', '-')
 
 	// Merge object
-	return {
-		...(await ow.getProfile('pc', 'us', battletag) as Profile),
-		...(await ow.getStats('pc', 'us', battletag) as Stats)
+	try {
+		return {
+			...(await ow.getProfile('pc', 'us', battletag) as Profile),
+			...(await ow.getStats('pc', 'us', battletag) as Stats)
+		}
+	} catch (e) {
+		console.error(`Failed to call OW API`, e)
+		throw Error('Failed to reach Overwatch API')
 	}
 }
 
@@ -48,14 +53,17 @@ export async function summarizeTeam (teamPage: string) {
 	// Get HTML and pass into cheerio parser
 	const pageHTML = await axios.get(teamPage)
 	const $ = cheerio.load(pageHTML.data)
+	const playersHTML = $('.compete-table td:nth-child(3)')
+		.toArray()
+		.map(el => $(el).text())
+
+	if (playersHTML.length === 0) {
+		throw Error('Query selector failed, the team page contents is unexpected')
+	}
 
 	// Resolve all player summaries
 	const players = await Promise.all(
-		// Query user battletags
-		$('.compete-table td:nth-child(3)')
-			.toArray()
-			.map(el => $(el).text())
-			.map(summarizePlayer) // Convert to player summaries
+		playersHTML.map(summarizePlayer) // Convert to player summaries
 	)
 
 	// Only public players
