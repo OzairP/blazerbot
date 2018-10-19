@@ -1,5 +1,6 @@
 import dotenv from 'dotenv'
 import DiscordJS from 'discord.js'
+import promise_delay from 'p-min-delay'
 import { commands } from './commands'
 
 dotenv.config()
@@ -21,9 +22,9 @@ client.on('message', message => {
 		message.channel.startTyping()
 
 		// Spread regex capture groups as commands
-		executor(message, ...regex.exec(message.content)!.splice(1))
+		promise_delay(executor(message, ...regex.exec(message.content)!.splice(1)), 2500)
 			.then(response => (message.channel.stopTyping(), response)) // Stop typing
-			.then(response => message.reply(...[].concat(response))) // Apply response data as message.reply args
+			.then(response => response && message.reply(...[].concat(response))) // Apply response data as message.reply args
 			.catch((e: Error) => { // Error handling
 				message.reply(`Error: ${e.message}`)
 					.catch(console.error)
