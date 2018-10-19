@@ -7,7 +7,7 @@ export const commands: Array<[RegExp, (message: Message, ...args: Array<any>) =>
 
 	[
 		// Display README
-		/\.bb help/,
+		/^\.bb help$/,
 		async function (message) {
 			await message.author.send((await promisify(fs.readFile)('./README.md')).toString())
 			message.deletable && message.delete()
@@ -17,7 +17,7 @@ export const commands: Array<[RegExp, (message: Message, ...args: Array<any>) =>
 
 	[
 		// Summarize a team's TESPA Compete Overwatch page
-		/\.bb summarize (.+)/,
+		/^\.bb summarize (.+)$/,
 		async function (message, teamPage: string) {
 			return teamSummaryToMessage(await summarizeTeam(teamPage))
 		}
@@ -25,7 +25,7 @@ export const commands: Array<[RegExp, (message: Message, ...args: Array<any>) =>
 
 	[
 		// Summarize a BattleTag
-		/\.bb stat (.+)/,
+		/^\.bb stat (.+)$/,
 		async function (message, battleTag: string) {
 			return playerSummaryToMessage(await summarizePlayer(battleTag))
 		}
