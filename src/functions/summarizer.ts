@@ -3,55 +3,55 @@ import * as ow_ from 'overwatch-api'
 import { Profile, Stats } from 'overwatch-api'
 import cheerio from 'cheerio'
 import axios from 'axios'
-import { UnwrapPromise } from './utils'
+import { partition, UnwrapPromise } from './utils'
 
-// promsify ow api
+type PlayerSummary = { discriminator: string } & Stats & Profile
+type TeamSummary = UnwrapPromise<ReturnType<typeof summarizeTeam>>
+
+// promisify ow api
 const ow = {
 	getProfile: promisify(ow_.getProfile),
-	getStats: promisify(ow_.getStats)
+	getStats: promisify(ow_.getStats),
 }
 
 /**
  * Get a users profile and stats
- *
- * @param {string} battletag - Users Battle.net tag
- * @return {Promise<OverwatchAPI.Stats & OverwatchAPI.Profile>}
  */
-export async function summarizePlayer (battletag: string): Promise<Stats & Profile> {
-	// Validate battletag
+export async function summarizePlayer(battletag: string): Promise<PlayerSummary> {
+	// Validate BattleTag
 	if (!/.+#\d+/.test(battletag)) {
-		throw Error('Bad battletag')
+		throw Error('Bad BattleTag')
 	}
 
-	// Replace hash with dash, required by owapi
-	battletag = battletag.replace('#', '-')
+	const [, username, discriminator] = /(.+)#(\d+)/.exec(battletag)!
+
+	// Replace hash with dash, required by OW-API
+	const battletagDashed = `${username}-${discriminator}`
 
 	// Merge object
 	try {
 		return {
-			...(await ow.getProfile('pc', 'us', battletag) as Profile),
-			...(await ow.getStats('pc', 'us', battletag) as Stats)
+			discriminator,
+			...((await ow.getProfile('pc', 'us', battletagDashed)) as Profile),
+			...((await ow.getStats('pc', 'us', battletagDashed)) as Stats),
 		}
 	} catch (e) {
-		console.error(`Failed to call OW API`, e)
-		throw Error('Failed to reach Overwatch API')
+		console.error(`Failed to reach Overwatch API for ${battletag}.\nError: ${e.message}`, e)
+		throw Error(`Failed to reach Overwatch API for ${battletag}.\nError: ${e.message}`)
 	}
 }
 
 /**
  * Summarize an entire TESPA team page
- * @param {string} teamPage - URL of TESPA team page
- * @return {Promise<{total_players: number; public_players: number; ranked_players: number; average_skill_rating: number; average_skill_rating_name: string; player_summaries: {battle_tag: string; skill_rating: number | string; skill_rating_name: string; heroes: string | OverwatchAPI.HeroPlaytime[]}[]}>}
  */
-export async function summarizeTeam (teamPage: string) {
+export async function summarizeTeam(tespaTeamPage: string) {
 	// Validate team page
-	if (!/https:\/\/compete\.tespa\.org\/tournament\/111\/team\/\d+(?:\/)?/
-		.test(teamPage)) {
+	if (!/https:\/\/compete\.tespa\.org\/tournament\/\d+\/team\/\d+(?:\/)?/.test(tespaTeamPage)) {
 		throw Error('Bad team url')
 	}
 
 	// Get HTML and pass into cheerio parser
-	const pageHTML = await axios.get(teamPage)
+	const pageHTML = await axios.get(tespaTeamPage)
 	const $ = cheerio.load(pageHTML.data)
 	const playersHTML = $('.compete-table td:nth-child(3)')
 		.toArray()
@@ -62,8 +62,13 @@ export async function summarizeTeam (teamPage: string) {
 	}
 
 	// Resolve all player summaries
-	const players = await Promise.all(
-		playersHTML.map(summarizePlayer) // Convert to player summaries
+	const playerErrorMix: Array<PlayerSummary | Error> = await Promise.all(
+		// Convert to player summaries, keep errors
+		playersHTML.map(player => summarizePlayer(player).catch(e => e))
+	)
+
+	const [errors, players] = playerErrorMix.reduce(
+		...partition<PlayerSummary | Error, Error, PlayerSummary>(el => (el instanceof Error ? -1 : 1))
 	)
 
 	// Only public players
@@ -72,9 +77,9 @@ export async function summarizeTeam (teamPage: string) {
 	const rankedPlayers = publicPlayers.filter(player => player.competitive.rank)
 
 	// Compute average SR
-	const average_skill_rating = Math.round(rankedPlayers
-			.reduce((sr, player) => sr + player.competitive.rank, 0)
-		/ rankedPlayers.length)
+	const average_skill_rating = Math.round(
+		rankedPlayers.reduce((sr, player) => sr + player.competitive.rank, 0) / rankedPlayers.length
+	)
 
 	return {
 		total_players: players.length,
@@ -82,27 +87,26 @@ export async function summarizeTeam (teamPage: string) {
 		ranked_players: rankedPlayers.length,
 		average_skill_rating,
 		average_skill_rating_name: skillRatingToName(average_skill_rating),
-		player_summaries: players.sort(SRComparator)
+		player_summaries: players.sort(SRComparator),
+		errors,
 	}
 }
 
 /**
  * Convert a SR to their respective names
- * @param {number} sr - Skill rating
- * @return {string}
  */
-export function skillRatingToName (sr: number) {
-	if (1 <= sr && sr <= 1499) {
+export function skillRatingToName(skillRating: number) {
+	if (1 <= skillRating && skillRating <= 1499) {
 		return 'Bronze'
-	} else if (1500 <= sr && sr <= 1999) {
+	} else if (1500 <= skillRating && skillRating <= 1999) {
 		return 'Silver'
-	} else if (2000 <= sr && sr <= 2499) {
+	} else if (2000 <= skillRating && skillRating <= 2499) {
 		return 'Gold'
-	} else if (2500 <= sr && sr <= 2999) {
+	} else if (2500 <= skillRating && skillRating <= 2999) {
 		return 'Platinum'
-	} else if (3000 <= sr && sr <= 3499) {
+	} else if (3000 <= skillRating && skillRating <= 3499) {
 		return 'Diamond'
-	} else if (3500 <= sr && sr <= 3999) {
+	} else if (3500 <= skillRating && skillRating <= 3999) {
 		return 'Master'
 	}
 	return 'Grandmaster'
@@ -110,32 +114,27 @@ export function skillRatingToName (sr: number) {
 
 /**
  * Convert a team summary to a message
- * @param {ThenArg<ReturnType<typeof summarizeTeam>>} summary
- * @return {string}
  */
-export function teamSummaryToMessage (summary: UnwrapPromise<ReturnType<typeof summarizeTeam>>) {
+export function teamSummaryToMessage(summary: TeamSummary) {
 	let message = `
 **Average Team SR**: ${summary.average_skill_rating_name} (${summary.average_skill_rating})
 **Team Members**: ${summary.total_players} (${summary.ranked_players} are ranked)
 **Player Summaries** (current competitive season):\n`
 
-	message += summary.player_summaries
-		.reduce((msg, player) => msg + playerSummaryToMessage(player, 3), '')
+	message += summary.player_summaries.reduce((msg, player) => msg + playerSummaryToMessage(player, 3), '')
+
+	message += `\n**Errors:**\n` + summary.errors.map(e => e.message).join('\n')
 
 	return message
 }
 
 /**
- * Convert a player summary to messsage
- *
- * @param {UnwrapPromise<ReturnType<typeof summarizePlayer>>} summary
- * @param {number} heroLimit
- * @return {string}
+ * Convert a player summary to message
  */
-export function playerSummaryToMessage (summary: UnwrapPromise<ReturnType<typeof summarizePlayer>>, heroLimit: number = 5) {
+export function playerSummaryToMessage(summary: PlayerSummary, heroListLimit: number = 5) {
 	const skillRatingName = summary.competitive.rank ? skillRatingToName(summary.competitive.rank) : 'Unranked'
 	const heroes = (() => {
-		const heroes = summary.stats.top_heroes.competitive.played.splice(0, heroLimit)
+		const heroes = summary.stats.top_heroes.competitive.played.splice(0, heroListLimit)
 		if (heroes.length === 0) {
 			return `\tUnknown\n`
 		}
@@ -143,24 +142,31 @@ export function playerSummaryToMessage (summary: UnwrapPromise<ReturnType<typeof
 		return heroes.reduce((content, hero) => content + `\t${hero.hero} (${hero.played})\n`, '')
 	})()
 
-	return `\n${summary.username} — ${skillRatingName} (${summary.competitive.rank || 'Unranked'})\n${heroes}`
+	return `\n**${summary.username}** — ${skillRatingName} (${summary.competitive.rank ||
+		'Unranked'})\nhttps://www.overbuff.com/players/pc/${summary.username}-${summary.discriminator}\n${heroes}`
 }
 
 /**
  * Compares SR, honoring the highest rated player
- *
- * @param {OverwatchAPI.Profile} a
- * @param {OverwatchAPI.Profile} b
- * @return {number}
  */
-export function SRComparator (a: Profile, b: Profile) {
-	if (a.competitive.rank && !b.competitive.rank) {
-		return a.competitive.rank
+export function SRComparator(a: Profile, b: Profile) {
+	const ar = a.competitive.rank
+	const br = b.competitive.rank
+
+	// A and B are both unranked
+	if (!ar && !br) {
+		return 0
 	}
 
-	if (b.competitive.rank && !a.competitive.rank) {
-		return b.competitive.rank
+	// A is ranked, B is not
+	if (ar && !br) {
+		return -1
 	}
 
-	return b.competitive.rank - a.competitive.rank
+	// B is ranked, A is not
+	if (br && !ar) {
+		return 1
+	}
+
+	return br - ar
 }

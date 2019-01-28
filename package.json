@@ -7,7 +7,9 @@
   "author": "Ozair Patel <ozairpatel2@gmail.com>",
   "license": "MIT",
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "start": "node build/index.js",
+    "prettier": "prettier \"src/**/*.ts\" --write"
   },
   "dependencies": {
     "@types/dotenv": "^4.0.3",
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@types/axios": "^0.14.0",
-    "@types/cheerio": "^0.22.9"
+    "@types/cheerio": "^0.22.9",
+    "prettier": "^1.16.1"
   }
 }

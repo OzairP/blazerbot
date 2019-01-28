@@ -25,16 +25,17 @@ client.on('message', message => {
 		promise_delay(executor(message, ...regex.exec(message.content)!.splice(1)), 2500)
 			.then(response => (message.channel.stopTyping(), response)) // Stop typing
 			.then(response => response && message.reply(...[].concat(response))) // Apply response data as message.reply args
-			.catch((e: Error) => { // Error handling
-				message.reply(`Error: ${e.message}`)
-					.catch(console.error)
+			.catch((e: Error) => {
+				// Error handling
+				message.reply(`Error: ${e.message}`).catch(console.error)
 				message.channel.stopTyping()
 				console.error(e)
 			})
 	})
 })
 
-client.login(process.env.DISCORD_TOKEN)
+client
+	.login(process.env.DISCORD_TOKEN)
 	.then(() => {
 		console.log('Logged in')
 		return client.user.setActivity('.bb help')
